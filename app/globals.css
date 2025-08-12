@@ -1,0 +1,361 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Açık Tema Temel Paleti */
+    --bg-primary-light: 0 0% 97%; /* #F8F9FA */
+    --bg-secondary-light: 0 0% 100%; /* #FFFFFF */
+    --text-primary-light: 0 0% 13%; /* #212121 */
+    --text-secondary-light: 0 0% 38%; /* #616161 */
+    --border-light: 0 0% 88%; /* #E0E0E0 */
+    --accent-blue-light: 217 89% 61%; /* #4285F4 */
+    --hover-bg-light: 0 0% 93%; /* #EEEEEE */
+    --active-bg-light: 214 100% 97%; /* #E8F0FE */
+
+    /* Koyu Tema Temel Paleti */
+    --bg-primary-dark: 0 0% 7%; /* #121212 */
+    --bg-secondary-dark: 0 0% 12%; /* #1F1F1F */
+    --text-primary-dark: 0 0% 96%; /* #F5F5F5 */
+    --text-secondary-dark: 0 0% 67%; /* #AAAAAA */
+    --border-dark: 0 0% 20%; /* #333333 */
+    --accent-blue-dark: 214 90% 76%; /* #8AB4F8 */
+    --hover-bg-dark: 0 0% 17%; /* #2C2C2C */
+    --active-bg-dark: 219 13% 27%; /* #3A3F4E */
+
+    /* Sistem Değişkenleri - Açık Tema */
+    --background: var(--bg-primary-light);
+    --foreground: var(--text-primary-light);
+    --card: var(--bg-secondary-light);
+    --card-foreground: var(--text-primary-light);
+    --popover: var(--bg-secondary-light);
+    --popover-foreground: var(--text-primary-light);
+    --primary: var(--accent-blue-light);
+    --primary-foreground: var(--bg-secondary-light);
+    --secondary: var(--hover-bg-light);
+    --secondary-foreground: var(--text-primary-light);
+    --muted: var(--hover-bg-light);
+    --muted-foreground: var(--text-secondary-light);
+    --accent: var(--active-bg-light);
+    --accent-foreground: var(--accent-blue-light);
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: var(--bg-secondary-light);
+    --border: var(--border-light);
+    --input: var(--border-light);
+    --ring: var(--accent-blue-light);
+    --radius: 0.75rem;
+  }
+
+  .dark {
+    /* Sistem Değişkenleri - Koyu Tema */
+    --background: var(--bg-primary-dark);
+    --foreground: var(--text-primary-dark);
+    --card: var(--bg-secondary-dark);
+    --card-foreground: var(--text-primary-dark);
+    --popover: var(--bg-secondary-dark);
+    --popover-foreground: var(--text-primary-dark);
+    --primary: var(--accent-blue-dark);
+    --primary-foreground: var(--bg-primary-dark);
+    --secondary: var(--hover-bg-dark);
+    --secondary-foreground: var(--text-primary-dark);
+    --muted: var(--hover-bg-dark);
+    --muted-foreground: var(--text-secondary-dark);
+    --accent: var(--active-bg-dark);
+    --accent-foreground: var(--accent-blue-dark);
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: var(--text-primary-dark);
+    --border: var(--border-dark);
+    --input: var(--border-dark);
+    --ring: var(--accent-blue-dark);
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans;
+    font-family: "Inter", system-ui, -apple-system, sans-serif;
+    font-feature-settings: "rlig" 1, "calt" 1;
+    overflow: hidden; /* Prevent body scroll on mobile */
+  }
+
+  html {
+    scroll-behavior: smooth;
+    overflow: hidden; /* Prevent html scroll on mobile */
+  }
+
+  /* Typography */
+  h1,
+  .h1,
+  h2,
+  .h2,
+  h3,
+  .h3,
+  h4,
+  .h4,
+  h5,
+  .h5,
+  h6,
+  .h6 {
+    font-family: "Montserrat", system-ui, -apple-system, sans-serif;
+    @apply font-black tracking-tight;
+  }
+
+  /* Responsive Typography */
+  h1,
+  .h1 {
+    @apply text-3xl font-black md:text-4xl lg:text-5xl;
+    letter-spacing: -0.025em;
+  }
+
+  h2,
+  .h2 {
+    @apply text-2xl font-extrabold md:text-3xl;
+    letter-spacing: -0.02em;
+  }
+  h3,
+  .h3 {
+    @apply text-xl font-medium md:text-2xl;
+  }
+  p,
+  .p {
+    @apply text-base md:text-lg;
+  }
+  .small-text {
+    @apply text-sm;
+  }
+}
+
+@layer utilities {
+  /* VIBRANT GRADIENT TO FIX VISIBILITY */
+  .skal-gradient {
+    background: linear-gradient(135deg, #f95700 0%, #0099cc 100%);
+  }
+
+  .skal-gradient-reverse {
+    background: linear-gradient(135deg, #0099cc 0%, #f95700 100%);
+  }
+
+  /* Modern Glass/Card Effects */
+  .card-modern {
+    @apply bg-white/90 backdrop-blur-sm border border-gray-200/50 shadow-lg rounded-2xl;
+  }
+
+  .sidebar-card {
+    @apply bg-white/95 backdrop-blur-md border border-gray-200/40 shadow-xl rounded-2xl;
+  }
+
+  /* Scrollbar Hiding Utility */
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Mobile viewport height fix */
+  .mobile-viewport {
+    height: 100vh;
+    height: 100dvh; /* Dynamic viewport height for mobile */
+  }
+
+  /* Added auth page animations and styles */
+  /* Auth Page Animations */
+  .animate-element {
+    opacity: 0;
+    filter: blur(4px);
+    transform: translateY(20px);
+    animation: fadeSlideIn 0.6s ease-out forwards;
+  }
+
+  .animate-slide-right {
+    opacity: 0;
+    filter: blur(4px);
+    transform: translateX(40px);
+    animation: slideRightIn 0.8s ease-out forwards;
+  }
+
+  .animate-testimonial {
+    opacity: 0;
+    filter: blur(4px);
+    transform: translateY(20px) scale(0.95);
+    animation: testimonialIn 0.6s ease-out forwards;
+  }
+
+  /* Animation Delays */
+  .animate-delay-100 {
+    animation-delay: 0.1s;
+  }
+  .animate-delay-200 {
+    animation-delay: 0.2s;
+  }
+  .animate-delay-300 {
+    animation-delay: 0.3s;
+  }
+  .animate-delay-400 {
+    animation-delay: 0.4s;
+  }
+  .animate-delay-500 {
+    animation-delay: 0.5s;
+  }
+  .animate-delay-600 {
+    animation-delay: 0.6s;
+  }
+  .animate-delay-700 {
+    animation-delay: 0.7s;
+  }
+  .animate-delay-800 {
+    animation-delay: 0.8s;
+  }
+  .animate-delay-900 {
+    animation-delay: 0.9s;
+  }
+  .animate-delay-1000 {
+    animation-delay: 1.0s;
+  }
+  .animate-delay-1200 {
+    animation-delay: 1.2s;
+  }
+  .animate-delay-1400 {
+    animation-delay: 1.4s;
+  }
+
+  /* Custom Checkbox */
+  .custom-checkbox {
+    @apply w-4 h-4 rounded border-2 border-border bg-transparent appearance-none cursor-pointer relative;
+  }
+
+  .custom-checkbox:checked {
+    @apply bg-violet-500 border-violet-500;
+  }
+
+  .custom-checkbox:checked::after {
+    content: "✓";
+    @apply absolute inset-0 flex items-center justify-center text-white text-xs font-bold;
+  }
+}
+
+/* Added keyframe animations for auth pages */
+@keyframes fadeSlideIn {
+  to {
+    opacity: 1;
+    filter: blur(0px);
+    transform: translateY(0px);
+  }
+}
+
+@keyframes slideRightIn {
+  to {
+    opacity: 1;
+    filter: blur(0px);
+    transform: translateX(0px);
+  }
+}
+
+@keyframes testimonialIn {
+  to {
+    opacity: 1;
+    filter: blur(0px);
+    transform: translateY(0px) scale(1);
+  }
+}
+
+/* Custom gradient text */
+.gradient-text {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Glassmorphism effect */
+.glass-effect {
+  background: rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+/* Loading animation */
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-spin {
+  animation: spin 1s linear infinite;
+}
+
+/* Hover effects */
+.hover-lift {
+  transition: transform 0.3s ease;
+}
+
+.hover-lift:hover {
+  transform: translateY(-5px);
+}
+
+/* Responsive text sizes */
+@media (max-width: 640px) {
+  .text-responsive-xl {
+    font-size: 1.5rem;
+    line-height: 2rem;
+  }
+}
+
+@media (min-width: 641px) {
+  .text-responsive-xl {
+    font-size: 2.25rem;
+    line-height: 2.5rem;
+  }
+}
+
+/* Custom button styles */
+.btn-primary {
+  @apply bg-gradient-to-r from-blue-500 to-purple-600 text-white px-6 py-3 rounded-full font-semibold transition-all duration-300 transform hover:scale-105 hover:shadow-lg;
+}
+
+.btn-secondary {
+  @apply bg-white/10 backdrop-blur-md text-white px-6 py-3 rounded-full font-semibold transition-all duration-300 hover:bg-white/20;
+}
+
+/* Form input styles */
+.form-input {
+  @apply w-full px-4 py-3 bg-white/20 border border-white/30 rounded-lg text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent transition-all;
+}
+
+/* Card hover effects */
+.card-hover {
+  @apply transition-all duration-300 transform hover:-translate-y-2 hover:shadow-2xl;
+}
+
+/* Scroll indicators */
+.scroll-indicator {
+  @apply fixed top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 to-purple-600 z-50;
+  transform-origin: left;
+}
+
+/* Kod blokları için özel stiller */
+.prose pre {
+  @apply bg-slate-800 text-white rounded-lg p-4 my-4 shadow-md;
+  overflow-x: auto; /* Yatay kaydırma ekle */
+}
+
+.prose pre code {
+  @apply p-0 bg-transparent text-sm leading-relaxed;
+  font-family: "Fira Code", "Courier New", monospace; /* Okunaklı bir font */
+}
+
+/* Satır içi kod stilleri */
+.prose :not(pre) > code {
+  @apply bg-slate-200 text-slate-800 rounded px-1.5 py-0.5 text-sm;
+}
