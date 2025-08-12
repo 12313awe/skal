@@ -227,10 +227,13 @@ export async function POST(req: NextRequest) {
             const chunkText = chunk.text();
             
             // Handle thinking content if in think mode
-            if (thinkMode && chunk.candidates?.[0]?.content?.parts?.[0]?.thought) {
-              const thought = chunk.candidates[0].content.parts[0].thought;
-              thinkingContent += thought;
-              controller.enqueue(`THINKING:${thought}`);
+            if (thinkMode) {
+              const firstPart = chunk.candidates?.[0]?.content?.parts?.[0] as unknown as { thought?: string } | undefined;
+              const thought = firstPart?.thought;
+              if (thought) {
+                thinkingContent += thought;
+                controller.enqueue(`THINKING:${thought}`);
+              }
             }
             
             controller.enqueue(chunkText);
