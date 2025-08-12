@@ -49,6 +49,10 @@ export function ChatInput({ className }: any) {
 
 
     const messageText = message.trim();
+    console.groupCollapsed('[UI] Normal Gönderim');
+    console.log('timestamp', new Date().toISOString());
+    console.log('payload', { messageLength: messageText.length, isResponding, thinkMode: false });
+    console.groupEnd();
     await sendMessage(messageText, router);
     setMessage('');
     setShowThinkTooltip(false);
@@ -59,6 +63,10 @@ export function ChatInput({ className }: any) {
     if (!message.trim() || isResponding) return;
 
     const messageText = message.trim();
+    console.groupCollapsed('[UI] Düşünme Modu Gönderimi');
+    console.log('timestamp', new Date().toISOString());
+    console.log('payload', { messageLength: messageText.length, isResponding, thinkMode: true });
+    console.groupEnd();
     await sendMessage(messageText, router, true); // true indicates think mode
     setMessage('');
     setShowThinkTooltip(false);
@@ -100,59 +108,23 @@ export function ChatInput({ className }: any) {
               <div className="relative">
                 <Button
                   type="button"
-                  onClick={() => setShowThinkTooltip(!showThinkTooltip)}
+                  onClick={() => {
+                    const next = !showThinkTooltip;
+                    console.groupCollapsed('[UI] Düşünme Modu Paneli Toggle');
+                    console.log('timestamp', new Date().toISOString());
+                    console.log('action', next ? 'open' : 'close');
+                    console.log('messagePresent', !!message.trim());
+                    console.groupEnd();
+                    setShowThinkTooltip(next);
+                  }}
                   disabled={!message.trim() || isResponding}
                   className="bg-gradient-to-r from-purple-500 to-indigo-600 hover:from-purple-600 hover:to-indigo-700 text-white border-0 flex-shrink-0 h-9 w-9 sm:h-10 sm:w-10 rounded-xl shadow-sm"
                   size="icon"
                 >
                   <Brain className="h-3 w-3 sm:h-4 sm:w-4" />
                 </Button>
-
-                {/* Think Mode Tooltip */}
-                <AnimatePresence>
-                  {showThinkTooltip && (
-                    <motion.div
-                      initial={{ opacity: 0, scale: 0.95, y: 10 }}
-                      animate={{ opacity: 1, scale: 1, y: 0 }}
-                      exit={{ opacity: 0, scale: 0.95, y: 10 }}
-                      transition={{ duration: 0.2 }}
-                      className="absolute bottom-full right-0 mb-2 w-80 bg-card border border-border rounded-xl shadow-lg p-4 z-50"
-                    >
-                      <div className="flex items-center justify-between mb-3">
-                        <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
-                          <Brain className="h-4 w-4 text-purple-500" />
-                          {texts[language].thinkTooltipTitle}
-                        </h3>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => setShowThinkTooltip(false)}
-                          className="h-6 w-6 rounded-full"
-                        >
-                          <X className="h-3 w-3" />
-                        </Button>
-                      </div>
-                      <ul className="space-y-2 mb-4">
-                        {texts[language].thinkAdvantages.map((advantage, index) => (
-                          <li key={index} className="text-xs text-muted-foreground flex items-start gap-2">
-                            <div className="w-1.5 h-1.5 rounded-full bg-purple-500 mt-1.5 flex-shrink-0" />
-                            {advantage}
-                          </li>
-                        ))}
-                      </ul>
-                      <Button
-                        onClick={handleThinkSubmit}
-                        disabled={!message.trim() || isResponding}
-                        className="w-full bg-gradient-to-r from-purple-500 to-indigo-600 hover:from-purple-600 hover:to-indigo-700 text-white text-xs"
-                        size="sm"
-                      >
-                        <Brain className="h-3 w-3 mr-2" />
-                        {texts[language].thinkMode}
-                      </Button>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
               </div>
+              
               {/* Send Button */}
               <div>
                 <Button
@@ -165,6 +137,50 @@ export function ChatInput({ className }: any) {
                 </Button>
               </div>
             </form>
+            {/* Think Mode Collapsible Panel */}
+            <AnimatePresence>
+              {showThinkTooltip && (
+                <motion.div
+                  initial={{ opacity: 0, y: -8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -8 }}
+                  transition={{ duration: 0.2 }}
+                  className="mt-3 w-full bg-card border border-border rounded-xl shadow-inner p-4"
+                >
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
+                      <Brain className="h-4 w-4 text-purple-500" />
+                      {texts[language].thinkTooltipTitle}
+                    </h3>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => setShowThinkTooltip(false)}
+                      className="h-6 w-6 rounded-full"
+                    >
+                      <X className="h-3 w-3" />
+                    </Button>
+                  </div>
+                  <ul className="space-y-2 mb-4">
+                    {texts[language].thinkAdvantages.map((advantage, index) => (
+                      <li key={index} className="text-xs text-muted-foreground flex items-start gap-2">
+                        <div className="w-1.5 h-1.5 rounded-full bg-purple-500 mt-1.5 flex-shrink-0" />
+                        {advantage}
+                      </li>
+                    ))}
+                  </ul>
+                  <Button
+                    onClick={handleThinkSubmit}
+                    disabled={!message.trim() || isResponding}
+                    className="w-full bg-gradient-to-r from-purple-500 to-indigo-600 hover:from-purple-600 hover:to-indigo-700 text-white text-xs"
+                    size="sm"
+                  >
+                    <Brain className="h-3 w-3 mr-2" />
+                    {texts[language].thinkMode}
+                  </Button>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
           {/* Disclaimer */}
           <div className="text-center mt-2 sm:mt-3">
