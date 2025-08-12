@@ -89,7 +89,11 @@ export async function POST(req: NextRequest) {
   }
 
   try {
+    const startedAt = Date.now();
     const body = await req.json();
+    console.groupCollapsed('[API/chat] Incoming request');
+    console.log('timestamp', new Date().toISOString());
+    console.log('rawBody', body);
     const validation = chatRequestSchema.safeParse(body);
 
     if (!validation.success) {
@@ -97,6 +101,7 @@ export async function POST(req: NextRequest) {
     }
 
     const { message, sessionId, thinkMode } = validation.data;
+    console.log('validated', { sessionId, messageLength: message?.length, thinkMode });
 
     const cookieStore = await cookies();
     const supabaseAdmin = createClient(
@@ -196,6 +201,8 @@ export async function POST(req: NextRequest) {
       };
     }
     
+    console.log('Model configuration', modelConfig);
+
     const model = genAI.getGenerativeModel(modelConfig);
 
     const generationConfig = {
@@ -204,6 +211,7 @@ export async function POST(req: NextRequest) {
         topP: 0.95,
         maxOutputTokens: 3072,
     };
+    console.log('Generation configuration', generationConfig);
 
     const systemInstruction = getSystemPrompt(context);
 
@@ -217,14 +225,20 @@ export async function POST(req: NextRequest) {
     });
 
     const result = await chat.sendMessageStream(message);
+    console.log('Streaming started');
 
     const stream = new ReadableStream({
       async start(controller) {
         let fullResponse = "";
         let thinkingContent = "";
+        let chunkIndex = 0;
+        let totalTextBytes = 0;
+        let totalThoughtBytes = 0;
         try {
           for await (const chunk of result.stream) {
             const chunkText = chunk.text();
+            chunkIndex += 1;
+            totalTextBytes += chunkText.length;
             
             // Handle thinking content if in think mode
             if (thinkMode) {
@@ -232,12 +246,16 @@ export async function POST(req: NextRequest) {
               const thought = firstPart?.thought;
               if (thought) {
                 thinkingContent += thought;
+                totalThoughtBytes += thought.length;
                 controller.enqueue(`THINKING:${thought}`);
               }
             }
             
             controller.enqueue(chunkText);
             fullResponse += chunkText;
+            if (chunkIndex % 5 === 0) {
+              console.log('[Stream] progress', { chunkIndex, totalTextBytes, totalThoughtBytes });
+            }
           }
         } catch (error) {
           console.error("Stream processing error:", error);
@@ -253,13 +271,25 @@ export async function POST(req: NextRequest) {
             });
         }
 
+        console.log('[Stream] finished', {
+          totalTextBytes,
+          totalThoughtBytes,
+          durationMs: Date.now() - startedAt,
+          thinkMode,
+        });
+        console.groupEnd();
+
         controller.close();
       },
     });
-
-    return new Response(stream, {
-      headers: { 'Content-Type': 'text/plain; charset=utf-8' },
-    });
+    const responseHeaders = new Headers();
+    responseHeaders.set('Content-Type', 'text/plain; charset=utf-8');
+    responseHeaders.set('X-Model', modelConfig.model);
+    responseHeaders.set('X-Think-Mode', String(!!thinkMode));
+    responseHeaders.set('X-Generation-Config', JSON.stringify(generationConfig));
+    responseHeaders.set('X-Server-Timestamp', new Date().toISOString());
+    responseHeaders.set('Access-Control-Expose-Headers', 'X-Model, X-Think-Mode, X-Generation-Config, X-Server-Timestamp');
+    return new Response(stream, { headers: responseHeaders });
 
   } catch (error: any) {
     console.error('[CHAT_API_ERROR]', { 
