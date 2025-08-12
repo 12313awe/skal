@@ -214,6 +214,10 @@ export const useChatStore = create<ChatStore>((set, get) => {
   
   sendMessage: async (text: string, router: any, thinkMode: boolean = false): Promise<void> => {
     set({ isSendingMessage: true, error: null });
+    const t0 = performance.now();
+    console.groupCollapsed('[Client] sendMessage');
+    console.log('timestamp', new Date().toISOString());
+    console.log('request', { textLength: text.length, thinkMode });
     get().startResponseTimer(); // Start the timer when message is sent
     const isNewSession = !get().currentSession;
 
@@ -322,45 +326,56 @@ export const useChatStore = create<ChatStore>((set, get) => {
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          message: text, 
+        body: JSON.stringify({
+          message: text,
           sessionId: get().currentSession!.id,
-          thinkMode: thinkMode 
+          thinkMode,
         }),
       });
 
-      if (!response.ok) throw new Error(await response.text());
-      if (!response.body) throw new Error('Response body is null');
+      // Headers telemetry
+      const model = response.headers.get('X-Model');
+      const serverThinkMode = response.headers.get('X-Think-Mode');
+      const genCfgRaw = response.headers.get('X-Generation-Config');
+      const serverTs = response.headers.get('X-Server-Timestamp');
+      let generationConfig: any = undefined;
+      try { generationConfig = genCfgRaw ? JSON.parse(genCfgRaw) : undefined; } catch {}
+      console.log('[Client] response headers', { model, serverThinkMode, generationConfig, serverTs });
+
+      if (!response.ok || !response.body) {
+        throw new Error(`Response not ok or empty body: ${response.status}`);
+      }
 
       reader = response.body.getReader();
       const decoder = new TextDecoder();
+      let chunkIndex = 0;
+      let totalTextBytes = 0;
+      let totalThoughtBytes = 0;
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-        
         const chunk = decoder.decode(value, { stream: true });
-        
-        // Handle thinking content vs regular content
+        chunkIndex++;
+
         if (thinkMode && chunk.includes('THINKING:')) {
           const parts = chunk.split('THINKING:');
-          if (parts.length > 1) {
-            thinking += parts[1];
-          }
+          // Append any normal text before the THINKING tag
           if (parts[0]) {
             content += parts[0];
+            totalTextBytes += parts[0].length;
+          }
+          // Everything after first occurrence is thought payload
+          const thoughtPayload = parts.slice(1).join('THINKING:');
+          if (thoughtPayload) {
+            thinking += thoughtPayload;
+            totalThoughtBytes += thoughtPayload.length;
           }
         } else {
           content += chunk;
+          totalTextBytes += chunk.length;
         }
-        
-        // Debug logging
-        // console.log('Store - Updating message content:', {
-        //   contentLength: content.length,
-        //   messageCount: get().messages.length,
-        //   sessionId: get().currentSession?.id
-        // });
-        
+
         // State güncellemesini daha güvenli hale getir
         set(state => ({
           messages: state.messages.map((m, i) => {
@@ -370,6 +385,10 @@ export const useChatStore = create<ChatStore>((set, get) => {
             return m;
           }).slice(), // Yeni array referansı oluştur
         }));
+
+        if (chunkIndex % 5 === 0) {
+          console.log('[Client][Stream] progress', { chunkIndex, totalTextBytes, totalThoughtBytes });
+        }
       }
     } catch (error) {
       console.error('Fetch to /api/chat failed:', error);
@@ -384,7 +403,16 @@ export const useChatStore = create<ChatStore>((set, get) => {
       }));
     } finally {
       set({ isResponding: false, isSendingMessage: false });
+      get().stopResponseTimer();
       reader?.releaseLock();
+      const t1 = performance.now();
+      console.log('[Client] finished', {
+        durationMs: Math.round(t1 - t0),
+        totalContentBytes: content.length,
+        totalThinkingBytes: thinking.length,
+        thinkMode,
+      });
+      console.groupEnd();
     }
   },
   
