@@ -5,6 +5,7 @@ import { Lightbulb, CheckCircle2, Circle } from 'lucide-react';
 import { Button } from './ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from './ui/dialog';
 import { useChatStore } from '@/lib/store';
+import { AnimatedThinkButton } from './ui/animated-think-button';
 
 export function ThinkButton() {
   const [open, setOpen] = useState(false);
@@ -13,19 +14,12 @@ export function ThinkButton() {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button
-          type="button"
+        <AnimatedThinkButton
+          onClick={() => setOpen(true)}
           disabled={isResponding}
-          className={`h-9 w-9 sm:h-10 sm:w-10 rounded-xl shadow-sm flex items-center justify-center transition-all duration-200 ${
-            thinkModeEnabled
-              ? 'bg-yellow-400 text-gray-900 hover:bg-yellow-500 ring-2 ring-yellow-300/60 shadow-yellow-300/50'
-              : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-          }`}
-          aria-label="Think Modu"
-          title={thinkModeEnabled ? 'Think modu aktif' : 'Think modu kapalı'}
-        >
-          <Lightbulb className={`h-4 w-4 ${thinkModeEnabled ? 'drop-shadow-[0_0_6px_rgba(250,204,21,0.8)]' : ''}`} />
-        </Button>
+          isActive={thinkModeEnabled}
+          className="h-9 sm:h-10 w-24 sm:w-32"
+        />
       </DialogTrigger>
       <DialogContent className="sm:max-w-lg rounded-2xl">
         <DialogHeader>

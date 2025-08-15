@@ -8,6 +8,7 @@ import { useRouter } from 'next/navigation';
 import { Button } from './ui/button';
 import { Textarea } from './ui/textarea';
 import { ThinkButton } from './think-button';
+import { AnimatedSendButton } from './ui/animated-send-button';
 
 export function ChatInput({ className }: any) {
   const router = useRouter();
@@ -76,14 +77,11 @@ export function ChatInput({ className }: any) {
               <div className="flex items-center gap-2">
                 {/* Think Button opens modal to toggle mode; it does NOT send */}
                 <ThinkButton />
-                <Button
-                  type="submit"
+                <AnimatedSendButton
+                  onClick={handleSubmit}
                   disabled={!message.trim() || isResponding}
-                  className="bg-gradient-to-r from-[#F3904F] to-[#3B4371] hover:from-[#3B4371] hover:to-[#F3904F] text-primary-foreground border-0 flex-shrink-0 h-9 w-9 sm:h-10 sm:w-10 rounded-xl shadow-sm"
-                  size="icon"
-                >
-                  <Send className="h-3 w-3 sm:h-4 sm:w-4" />
-                </Button>
+                  className="flex-shrink-0 h-9 sm:h-10 w-24 sm:w-32"
+                />
               </div>
             </form>
           </div>
