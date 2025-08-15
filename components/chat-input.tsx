@@ -77,10 +77,7 @@ export function ChatInput({ className }: any) {
                 {/* Think Button opens modal to toggle mode; it does NOT send */}
                 <ThinkButton />
                 <AnimatedSendButton
-                  onClick={(e) => {
-                    e.preventDefault();
-                    void handleSubmit(e);
-                  }}
+                  type="submit"
                   disabled={!message.trim() || isResponding}
                   className="flex-shrink-0 h-9 sm:h-10 w-24 sm:w-32"
                 />
