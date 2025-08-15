@@ -6,9 +6,18 @@ import { createClient } from '@supabase/supabase-js';
 import { z } from 'zod';
 import { GoogleGenerativeAIEmbeddings } from "@langchain/google-genai";
 import { SupabaseVectorStore } from "@langchain/community/vectorstores/supabase";
-import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold, type Content } from "@google/generative-ai";
-import { Document } from 'langchain/document'; // Document tipini ekliyorum
+import { GoogleGenerativeAI } from "@google/generative-ai";
+import { Document } from 'langchain/document';
 
+// Cache the first working thinking model (or remember fallback) to avoid repeated upstream 400s
+let THINK_MODEL_CACHED: string | 'fallback' | null = null;
+
+const reqSchema = z.object({
+  message: z.string().min(1),
+  sessionId: z.string().uuid(),
+});
+
+// NOTE: Mirror system prompt of /api/chat/route.ts
 const getSystemPrompt = (data: string) => {
   let additionalInfo = '';
   if (data) {
@@ -70,176 +79,159 @@ ${additionalInfo}
 `;
 };
 
-const chatRequestSchema = z.object({
-  message: z.string().min(1, 'Message cannot be empty.').max(8000, 'Message cannot be longer than 8000 characters.'),
-  sessionId: z.string().uuid('Invalid session ID format.'),
-});
-
-interface ChatMessage {
-    role: 'user' | 'assistant';
-    content: string;
-}
-
 export async function POST(req: NextRequest) {
-  // Add a check for the essential environment variable
   if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
-    console.error('FATAL: SUPABASE_SERVICE_ROLE_KEY environment variable is not set.');
-    return NextResponse.json({ error: 'Server configuration error: Missing service key.' }, { status: 500 });
+    console.error('FATAL: SUPABASE_SERVICE_ROLE_KEY is not set');
+    return NextResponse.json({ error: 'Server configuration error' }, { status: 500 });
+  }
+  if (!process.env.GOOGLE_API_KEY) {
+    console.error('FATAL: GOOGLE_API_KEY is not set');
+    return NextResponse.json({ error: 'Server configuration error' }, { status: 500 });
   }
 
   try {
     const body = await req.json();
-    const validation = chatRequestSchema.safeParse(body);
-
-    if (!validation.success) {
-      return NextResponse.json({ error: 'Invalid request body', details: validation.error.flatten() }, { status: 400 });
+    const parsed = reqSchema.safeParse(body);
+    if (!parsed.success) {
+      return NextResponse.json({ error: 'Invalid body', details: parsed.error.flatten() }, { status: 400 });
     }
 
-    const { message, sessionId } = validation.data;
+    const { message, sessionId } = parsed.data;
 
     const cookieStore = await cookies();
     const supabaseAdmin = createClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
     );
 
     const { data: { user } } = await createServerClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-        { cookies: { get: (name: string) => cookieStore.get(name)?.value } }
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      { cookies: { get: (name: string) => cookieStore.get(name)?.value } }
     ).auth.getUser();
 
     if (!user) {
-        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Save user message to the database, letting Supabase generate the ID
+    // Persist user message
     await supabaseAdmin.from('chat_messages').insert({
-        session_id: sessionId,
-        user_id: user.id,
-        role: 'user',
-        content: message,
+      session_id: sessionId,
+      user_id: user.id,
+      role: 'user',
+      content: message,
     });
 
-    // --- Vector Search and AI Logic ---
+    // --- Vector Search and AI Logic (mirror /api/chat) ---
     const embeddings = new GoogleGenerativeAIEmbeddings({
-        apiKey: process.env.GOOGLE_API_KEY!,
-        modelName: "embedding-001",
+      apiKey: process.env.GOOGLE_API_KEY!,
+      modelName: 'embedding-001',
     });
-
     const vectorStore = new SupabaseVectorStore(embeddings, {
-        client: supabaseAdmin,
-        tableName: "documents",
-        queryName: "match_documents",
+      client: supabaseAdmin,
+      tableName: 'documents',
+      queryName: 'match_documents',
     });
 
     console.log('RAG: Similarity search başlatılıyor...');
     const relevantDocs = await vectorStore.similaritySearch(message, 50);
     console.log(`RAG: ${relevantDocs.length} adet belge çekildi.`);
 
-    let context = "";
-
-    // --- Re-ranking Logic ---
+    let context = '';
     if (relevantDocs.length > 0) {
-        console.log('RAG: Yeniden sıralama başlatılıyor...');
-        const rerankGenAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY!);
-        const rerankModel = rerankGenAI.getGenerativeModel({ model: "gemini-2.0-flash" }); 
-        
-        const rerankPrompt = `Kullanıcının sorgusu: "${message}" ve aşağıdaki belgeler göz önüne alındığında, onları en alakalıdan en az alakalıya doğru sıralayın. Yalnızca sıralanmış belge içeriklerini, her biri "---BELGE_AYIRICI---" ile ayrılmış olarak sağlayın. Başka hiçbir metin veya açıklama eklemeyin.\n\nBelgeler:\n${relevantDocs.map((doc: Document, index: number) => `Belge ${index + 1}:\n${doc.pageContent}`).join('\n\n')}`;
-
-        try {
-            const rerankResult = await rerankModel.generateContent(rerankPrompt);
-            const rerankedText = rerankResult.response.text();
-            
-            const orderedDocContents = rerankedText.split('---BELGE_AYIRICI---').map((s: string) => s.trim()).filter((s: string) => s.length > 0);
-            
-            context = orderedDocContents.join('\n\n');
-            console.log(`RAG: Yeniden sıralama tamamlandı. ${orderedDocContents.length} adet belge kullanıldı.`);
-
-        } catch (rerankError: any) {
-            console.error('[RERANK_API_ERROR]', { 
-                message: rerankError.message, 
-                stack: rerankError.stack 
-            });
-            context = relevantDocs.map(doc => doc.pageContent).join('\n\n');
-            console.log('RAG: Yeniden sıralama sırasında hata oluştu, orijinal belgeler bağlam olarak kullanıldı.', rerankError.message);
-        }
+      console.log('RAG: Yeniden sıralama başlatılıyor...');
+      const rerankGenAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY!);
+      const rerankModel = rerankGenAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+      const rerankPrompt = `Kullanıcının sorgusu: "${message}" ve aşağıdaki belgeler göz önüne alındığında, onları en alakalıdan en az alakalıya doğru sıralayın. Yalnızca sıralanmış belge içeriklerini, her biri "---BELGE_AYIRICI---" ile ayrılmış olarak sağlayın. Başka hiçbir metin veya açıklama eklemeyin.\n\nBelgeler:\n${relevantDocs.map((doc: Document, index: number) => `Belge ${index + 1}:\n${doc.pageContent}`).join('\n\n')}`;
+      try {
+        const rerankResult = await rerankModel.generateContent(rerankPrompt);
+        const rerankedText = rerankResult.response.text();
+        const orderedDocContents = rerankedText.split('---BELGE_AYIRICI---').map((s: string) => s.trim()).filter((s: string) => s.length > 0);
+        context = orderedDocContents.join('\n\n');
+        console.log(`RAG: Yeniden sıralama tamamlandı. ${orderedDocContents.length} adet belge kullanıldı.`);
+      } catch (rerankError: any) {
+        console.error('[RERANK_API_ERROR]', { message: rerankError.message, stack: rerankError.stack });
+        context = relevantDocs.map(doc => doc.pageContent).join('\n\n');
+        console.log('RAG: Yeniden sıralama sırasında hata oluştu, orijinal belgeler bağlam olarak kullanıldı.', rerankError?.message);
+      }
     }
-    // --- End Re-ranking Logic ---
 
+    // Fetch recent chat history (including just-saved user message)
     const { data: chatHistoryData } = await supabaseAdmin
-        .from('chat_messages')
-        .select('role, content')
-        .eq('session_id', sessionId)
-        .order('created_at', { ascending: false })
-        .limit(15); // Sohbet geçmişi limitini 30 olarak güncellendi
-    
-    const chatHistory: ChatMessage[] = chatHistoryData || [];
-
-    const history: Content[] = chatHistory.map(msg => ({
-        role: msg.role === 'user' ? 'user' : 'model',
-        parts: [{ text: msg.content }],
-    })).reverse(); // Reverse to have the correct order for the model
-
-    const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY!);
-    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
-
-    const generationConfig = {
-        temperature: 0.7,
-        topK: 40,
-        topP: 0.95,
-        maxOutputTokens: 3072,
-    };
+      .from('chat_messages')
+      .select('role, content')
+      .eq('session_id', sessionId)
+      .order('created_at', { ascending: false })
+      .limit(15);
+    const chatHistory: { role: 'user' | 'assistant'; content: string }[] = chatHistoryData || [];
 
     const systemInstruction = getSystemPrompt(context);
 
-    const chat = model.startChat({
-        history: [
-            { role: 'user', parts: [{ text: "Lütfen sana vereceğim sistem rolünü ve kurallarını harfiyen uygula." }] },
-            { role: 'model', parts: [{ text: `Anlaşıldı. Sistem rolünü ve kurallarını uygulayacağım. İşte rolüm ve kurallarım:\n\n${systemInstruction}` }] },
-            ...history
-        ],
-        generationConfig,
-    });
+    // Build OpenRouter messages: system + reversed history (no duplicate of current user)
+    const messagesForOR = [
+      { role: 'system', content: systemInstruction },
+      ...chatHistory.reverse().map(m => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: m.content })),
+    ];
 
-    const result = await chat.sendMessageStream(message);
+    // OpenRouter: DeepSeek R1 (free) for Think mode
+    const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
+    if (!OPENROUTER_API_KEY) {
+      console.error('FATAL: OPENROUTER_API_KEY is not set');
+      return NextResponse.json({ error: 'Server configuration error' }, { status: 500 });
+    }
 
-    const stream = new ReadableStream({
-      async start(controller) {
-        let fullResponse = "";
-        try {
-          for await (const chunk of result.stream) {
-            const chunkText = chunk.text();
-            controller.enqueue(chunkText);
-            fullResponse += chunkText;
-          }
-        } catch (error) {
-          console.error("Stream processing error:", error);
-          controller.error(error); // Hata durumunda akışı sonlandır
-        }
-        
-        if (fullResponse) {
-            await supabaseAdmin.from('chat_messages').insert({
-                session_id: sessionId,
-                user_id: user.id,
-                role: 'assistant',
-                content: fullResponse,
-            });
-        }
+    const siteUrl = req.headers.get('referer') || 'http://localhost:3000';
+    const siteTitle = 'SkalGPT';
 
-        controller.close();
+    const orRes = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
+        'HTTP-Referer': siteUrl,
+        'X-Title': siteTitle,
+        'Content-Type': 'application/json',
       },
+      body: JSON.stringify({
+        model: 'deepseek/deepseek-r1:free',
+        messages: messagesForOR,
+      }),
     });
 
-    return new Response(stream, {
-      headers: { 'Content-Type': 'text/plain; charset=utf-8' },
-    });
+    if (!orRes.ok) {
+      const errText = await orRes.text();
+      console.error('[THINK_API_ERROR] OpenRouter upstream error:', errText);
+      return NextResponse.json({ error: 'Upstream error' }, { status: 500 });
+    }
 
-  } catch (error: any) {
-    console.error('[CHAT_API_ERROR]', { 
-        message: error.message, 
-        stack: error.stack 
-    });
-    return NextResponse.json({ error: 'An internal error occurred' }, { status: 500 });
+    const data = await orRes.json();
+    const choice = data?.choices?.[0]?.message || {};
+    let outputText: string = choice?.content || '';
+    let thoughtsText: string | undefined = (choice as any)?.reasoning;
+    // If reasoning not provided separately, try to extract from <think> tags in content
+    if (!thoughtsText && typeof outputText === 'string') {
+      const m = outputText.match(/<think>([\s\S]*?)<\/think>/i);
+      if (m) {
+        thoughtsText = m[1].trim();
+        outputText = outputText.replace(m[0], '').trim();
+      }
+    }
+
+    // Persist assistant message
+    const { data: assistantInsert, error: assistantErr } = await supabaseAdmin
+      .from('chat_messages')
+      .insert({
+        session_id: sessionId,
+        user_id: user.id,
+        role: 'assistant',
+        content: outputText,
+        thoughts: thoughtsText ?? null,
+      })
+      .select('id')
+      .single();
+
+    return NextResponse.json({ output: outputText, thinking: thoughtsText ?? '' });
+  } catch (err: any) {
+    console.error('[THINK_API_ERROR]', err?.message || err);
+    return NextResponse.json({ error: 'Internal error' }, { status: 500 });
   }
 }

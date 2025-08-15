@@ -3,10 +3,9 @@
 import { Message } from '@/types/chat';
 import dynamic from 'next/dynamic';
 import { useEffect, useState, useRef } from 'react';
-import { ChevronDown, ChevronRight, Brain } from 'lucide-react';
-import { Button } from './ui/button';
-import { motion, AnimatePresence } from 'framer-motion';
 import { formatTime } from '@/lib/utils';
+import { ChevronDown, ChevronRight, Sparkles } from 'lucide-react';
+import { useChatStore } from '@/lib/store';
 
 // Markdown renderer'ı dinamik olarak yüklüyoruz.
 const DynamicMarkdownRenderer = dynamic(
@@ -27,17 +26,18 @@ interface ChatBubbleProps {
 
 export function ChatBubble({ message, isLastMessage, isResponding }: ChatBubbleProps) {
   const isUser = message.role === 'user';
-  const [showThinking, setShowThinking] = useState(false);
   // 'showStreaming' animasyonun başlaması gerekip gerekmediğini kontrol eder.
   const showStreaming = !isUser && isLastMessage && isResponding;
 
   const [displayedText, setDisplayedText] = useState('');
+  const [showThoughts, setShowThoughts] = useState(false); // Varsayılan kapalı
   
   // Animasyonun her mesaj için sıfırlandığından emin olmak için referans kullanıyoruz.
   const prevMessageIdRef = useRef<string | null>(null);
   // Animasyonun ortasında kesilmesini önlemek için bir referans daha.
   const isAnimatingRef = useRef(false);
   const prevContentRef = useRef<string>('');
+  const { thinkModeEnabled } = useChatStore();
 
   useEffect(() => {
     const isNewMessage = prevMessageIdRef.current !== message.id;
@@ -49,6 +49,7 @@ export function ChatBubble({ message, isLastMessage, isResponding }: ChatBubbleP
       prevMessageIdRef.current = message.id;
       isAnimatingRef.current = false; // Yeni mesaj için animasyon durumunu sıfırla.
       prevContentRef.current = '';
+      setShowThoughts(false); // Yeni mesaj geldiğinde düşünce panelini kapat
     }
 
     // İçerik değişmemişse hiçbir şey yapma
@@ -82,9 +83,6 @@ export function ChatBubble({ message, isLastMessage, isResponding }: ChatBubbleP
     // render döngüsünü stabilize etmeye yardımcı olur.
   }, [displayedText, message.content, showStreaming, message.id, isUser, isLastMessage]);
 
-  // Check if message has thinking content (mock check - you'll need to implement actual thinking content detection)
-  const hasThinking = !isUser && message.thinking;
-
   return (
     <div className={`flex w-full my-6 ${isUser ? 'justify-end' : 'justify-start'} flex-col`}>
       <div className={`flex w-full ${isUser ? 'justify-end' : 'justify-start'}`}>
@@ -95,42 +93,33 @@ export function ChatBubble({ message, isLastMessage, isResponding }: ChatBubbleP
               : 'bg-card text-foreground border border-border dark:bg-card dark:text-foreground dark:border-border'
           }`}
         >
-          {/* Thinking Process Section */}
-          {hasThinking && (
-            <div className="mb-4 border-b border-border pb-4">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setShowThinking(!showThinking)}
-                className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground p-0 h-auto font-normal"
+          {/* Düşünce Süreci: sadece Think modu açıkken ve asistan mesajlarında göster */}
+          {!isUser && thinkModeEnabled && (
+            <div className="mb-2">
+              <button
+                type="button"
+                onClick={() => setShowThoughts(v => !v)}
+                className="group inline-flex items-center text-xs text-muted-foreground hover:text-foreground transition-colors"
+                aria-expanded={showThoughts}
               >
-                {showThinking ? (
-                  <ChevronDown className="h-3 w-3" />
+                {showThoughts ? (
+                  <ChevronDown className="h-3 w-3 mr-1" />
                 ) : (
-                  <ChevronRight className="h-3 w-3" />
+                  <ChevronRight className="h-3 w-3 mr-1" />
                 )}
-                <Brain className="h-3 w-3 text-purple-500" />
-                Düşünme Süreci
-              </Button>
-              
-              <AnimatePresence>
-                {showThinking && (
-                  <motion.div
-                    initial={{ opacity: 0, height: 0 }}
-                    animate={{ opacity: 1, height: 'auto' }}
-                    exit={{ opacity: 0, height: 0 }}
-                    transition={{ duration: 0.3 }}
-                    className="mt-3 p-3 bg-muted/50 rounded-lg border border-border/50"
-                  >
-                    <div className="prose prose-sm max-w-none text-current dark:prose-invert prose-p:my-1 prose-headings:my-2">
-                      <DynamicMarkdownRenderer content={message.thinking || ''} />
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
+                <span className="inline-flex items-center gap-1">
+                  <Sparkles className="h-3 w-3" /> Düşünce Süreci
+                </span>
+              </button>
+              {showThoughts && (
+                <div className="mt-2 rounded-md border border-border bg-muted/30 p-2 text-xs text-muted-foreground whitespace-pre-wrap max-h-60 overflow-y-auto leading-relaxed">
+                  {('thoughts' in message && (message as any).thoughts && (message as any).thoughts.length > 0)
+                    ? (message as any).thoughts
+                    : 'Bu mesaj için düşünce verisi mevcut değil.'}
+                </div>
+              )}
             </div>
           )}
-
           {/* Metni ve stilleri tek bir yerden yönetiyoruz */}
           <div className="prose prose-sm sm:prose-base max-w-none text-current dark:prose-invert prose-p:my-2 prose-headings:my-3">
             <DynamicMarkdownRenderer content={displayedText} />

@@ -22,15 +22,18 @@ interface ChatStore {
   language: 'tr' | 'en';
   responseTime: number; // New state for response time
   responseTimerInterval: NodeJS.Timeout | null; // New state for timer interval
+  thinkModeEnabled: boolean; // Think modu aktif mi?
   
   // Actions
   fetchSessions: (offset?: number, limit?: number) => Promise<boolean>;
   fetchMessages: (sessionId: string) => Promise<void>;
   createNewSession: (title?: string, initialMessageContent?: string) => Promise<ChatSession | null>;
   setCurrentSession: (session: ChatSession | null) => void;
-  sendMessage: (text: string, router: any, thinkMode?: boolean) => Promise<void>;
+  sendMessage: (text: string, router: any) => Promise<void>;
+  sendThinkMessage: (text: string, router: any) => Promise<void>;
   toggleSidebar: () => void;
   setSidebarOpen: (open: boolean) => void;
+  setThinkModeEnabled: (enabled: boolean) => void;
   deleteSession: (sessionId: string) => Promise<void>;
   setUser: (user: User | null) => void;
   clearChat: () => void;
@@ -59,6 +62,7 @@ export const useChatStore = create<ChatStore>((set, get) => {
   language: 'tr',
   responseTime: 0,
   responseTimerInterval: null,
+  thinkModeEnabled: false,
 
   setUser: (user) => set({ user }),
 
@@ -108,6 +112,94 @@ export const useChatStore = create<ChatStore>((set, get) => {
     
     const hasMore = (count !== null && (offset + newSessions.length) < count);
     return hasMore;
+  },
+
+  // Think modu: Gemini 2.5 Flash + dynamic thinkingBudget (-1)
+  sendThinkMessage: async (text: string, router: any): Promise<void> => {
+    set({ isSendingMessage: true, error: null });
+    get().startResponseTimer();
+    const isNewSession = !get().currentSession;
+
+    if (isNewSession) {
+      const tempSessionId = crypto.randomUUID();
+      const tempSession: ChatSession = {
+        id: tempSessionId,
+        user_id: get().user!.id,
+        title: 'Yeni Sohbet',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        isGeneratingTitle: true,
+      };
+
+      const userMessage: Message = {
+        id: crypto.randomUUID(), session_id: tempSessionId, user_id: get().user!.id, role: 'user', content: text, created_at: new Date().toISOString(),
+      };
+      const assistantMessage: Message = {
+        id: crypto.randomUUID(), session_id: tempSessionId, user_id: get().user!.id, role: 'assistant', content: '', created_at: new Date().toISOString(),
+      };
+
+      set(state => ({
+        sessions: [tempSession, ...state.sessions],
+        currentSession: tempSession,
+        messages: [userMessage, assistantMessage],
+        isResponding: true,
+      }));
+
+      const newSession = await get().createNewSession('Yeni Sohbet');
+      if (!newSession) {
+        toast.error('Yeni sohbet oluşturulamadı.');
+        set({ isResponding: false, isSendingMessage: false });
+        return;
+      }
+
+      set(state => ({
+        sessions: state.sessions.map(s => s.id === tempSessionId ? { ...newSession, isGeneratingTitle: true } : s),
+        currentSession: { ...newSession, isGeneratingTitle: true },
+        messages: state.messages.map(m => m.session_id === tempSessionId ? { ...m, session_id: newSession.id } : m),
+      }));
+
+      router.push(`/chat/${newSession.id}`);
+
+      // Başlığı arka planda üretmeye devam et
+      fetch('/api/generate-title', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: text }),
+      }).then(async res => { if (res.ok) { const data = await res.json(); get().updateSessionTitle(newSession.id, data.title); } }).catch(() => {});
+    } else {
+      const session = get().currentSession!;
+      const userMessage: Message = { id: crypto.randomUUID(), session_id: session.id, user_id: session.user_id, role: 'user', content: text, created_at: new Date().toISOString() };
+      const assistantMessage: Message = { id: crypto.randomUUID(), session_id: session.id, user_id: session.user_id, role: 'assistant', content: '', created_at: new Date().toISOString() };
+      set(state => ({ messages: [...state.messages, userMessage, assistantMessage].slice(), isResponding: true }));
+    }
+
+    try {
+      const sid = get().currentSession!.id;
+      const res = await fetch('/api/think', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: text, sessionId: sid }),
+      });
+
+      if (!res.ok) throw new Error(await res.text());
+      const data = await res.json();
+
+      set(state => ({
+        messages: state.messages.map((m, i) => {
+          if (i === state.messages.length - 1) {
+            return { ...m, content: data.output || '', thoughts: data.thinking || '' } as Message;
+          }
+          return m;
+        }).slice(),
+      }));
+    } catch (error) {
+      console.error('Fetch to /api/think failed:', error);
+      toast.error('Think modu yanıtı alınırken bir hata oluştu.');
+      set(state => ({
+        messages: state.messages.map((m, i) => i === state.messages.length - 1 ? { ...m, content: 'Üzgünüm, bir hata oluştu.' } : m).slice(),
+      }));
+    } finally {
+      set({ isResponding: false, isSendingMessage: false });
+      get().stopResponseTimer();
+    }
   },
 
   fetchMessages: async (sessionId: string) => {
@@ -212,12 +304,8 @@ export const useChatStore = create<ChatStore>((set, get) => {
     return data;
   },
   
-  sendMessage: async (text: string, router: any, thinkMode: boolean = false): Promise<void> => {
+  sendMessage: async (text: string, router: any): Promise<void> => {
     set({ isSendingMessage: true, error: null });
-    const t0 = performance.now();
-    console.groupCollapsed('[Client] sendMessage');
-    console.log('timestamp', new Date().toISOString());
-    console.log('request', { textLength: text.length, thinkMode });
     get().startResponseTimer(); // Start the timer when message is sent
     const isNewSession = !get().currentSession;
 
@@ -233,22 +321,10 @@ export const useChatStore = create<ChatStore>((set, get) => {
       };
 
       const userMessage: Message = {
-        id: crypto.randomUUID(), 
-        session_id: tempSessionId, 
-        user_id: get().user!.id, 
-        role: 'user', 
-        content: text, 
-        created_at: new Date().toISOString(),
-        isThinkMode: thinkMode,
+        id: crypto.randomUUID(), session_id: tempSessionId, user_id: get().user!.id, role: 'user', content: text, created_at: new Date().toISOString(),
       };
       const assistantMessage: Message = {
-        id: crypto.randomUUID(), 
-        session_id: tempSessionId, 
-        user_id: get().user!.id, 
-        role: 'assistant', 
-        content: '', 
-        created_at: new Date().toISOString(),
-        isThinkMode: thinkMode,
+        id: crypto.randomUUID(), session_id: tempSessionId, user_id: get().user!.id, role: 'assistant', content: '', created_at: new Date().toISOString(),
       };
 
       set(state => ({
@@ -294,22 +370,10 @@ export const useChatStore = create<ChatStore>((set, get) => {
     } else {
       const session = get().currentSession!;
       const userMessage: Message = {
-        id: crypto.randomUUID(), 
-        session_id: session.id, 
-        user_id: session.user_id, 
-        role: 'user', 
-        content: text, 
-        created_at: new Date().toISOString(),
-        isThinkMode: thinkMode,
+        id: crypto.randomUUID(), session_id: session.id, user_id: session.user_id, role: 'user', content: text, created_at: new Date().toISOString(),
       };
       const assistantMessage: Message = {
-        id: crypto.randomUUID(), 
-        session_id: session.id, 
-        user_id: session.user_id, 
-        role: 'assistant', 
-        content: '', 
-        created_at: new Date().toISOString(),
-        isThinkMode: thinkMode,
+        id: crypto.randomUUID(), session_id: session.id, user_id: session.user_id, role: 'assistant', content: '', created_at: new Date().toISOString(),
       };
       set(state => ({ 
       // Mesajları eklerken yeni bir array oluştur
@@ -319,76 +383,42 @@ export const useChatStore = create<ChatStore>((set, get) => {
     }
 
     let content = '';
-    let thinking = '';
     let reader: ReadableStreamDefaultReader<Uint8Array> | null = null; // reader değişkenini burada tanımla
 
     try {
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          message: text,
-          sessionId: get().currentSession!.id,
-          thinkMode,
-        }),
+        body: JSON.stringify({ message: text, sessionId: get().currentSession!.id }),
       });
 
-      // Headers telemetry
-      const model = response.headers.get('X-Model');
-      const serverThinkMode = response.headers.get('X-Think-Mode');
-      const genCfgRaw = response.headers.get('X-Generation-Config');
-      const serverTs = response.headers.get('X-Server-Timestamp');
-      let generationConfig: any = undefined;
-      try { generationConfig = genCfgRaw ? JSON.parse(genCfgRaw) : undefined; } catch {}
-      console.log('[Client] response headers', { model, serverThinkMode, generationConfig, serverTs });
-
-      if (!response.ok || !response.body) {
-        throw new Error(`Response not ok or empty body: ${response.status}`);
-      }
+      if (!response.ok) throw new Error(await response.text());
+      if (!response.body) throw new Error('Response body is null');
 
       reader = response.body.getReader();
       const decoder = new TextDecoder();
-      let chunkIndex = 0;
-      let totalTextBytes = 0;
-      let totalThoughtBytes = 0;
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-        const chunk = decoder.decode(value, { stream: true });
-        chunkIndex++;
-
-        if (thinkMode && chunk.includes('THINKING:')) {
-          const parts = chunk.split('THINKING:');
-          // Append any normal text before the THINKING tag
-          if (parts[0]) {
-            content += parts[0];
-            totalTextBytes += parts[0].length;
-          }
-          // Everything after first occurrence is thought payload
-          const thoughtPayload = parts.slice(1).join('THINKING:');
-          if (thoughtPayload) {
-            thinking += thoughtPayload;
-            totalThoughtBytes += thoughtPayload.length;
-          }
-        } else {
-          content += chunk;
-          totalTextBytes += chunk.length;
-        }
-
+        content += decoder.decode(value, { stream: true });
+        
+        // Debug logging
+        // console.log('Store - Updating message content:', {
+        //   contentLength: content.length,
+        //   messageCount: get().messages.length,
+        //   sessionId: get().currentSession?.id
+        // });
+        
         // State güncellemesini daha güvenli hale getir
         set(state => ({
           messages: state.messages.map((m, i) => {
             if (i === state.messages.length - 1) {
-              return { ...m, content, thinking: thinking || undefined };
+              return { ...m, content };
             }
             return m;
           }).slice(), // Yeni array referansı oluştur
         }));
-
-        if (chunkIndex % 5 === 0) {
-          console.log('[Client][Stream] progress', { chunkIndex, totalTextBytes, totalThoughtBytes });
-        }
       }
     } catch (error) {
       console.error('Fetch to /api/chat failed:', error);
@@ -403,16 +433,7 @@ export const useChatStore = create<ChatStore>((set, get) => {
       }));
     } finally {
       set({ isResponding: false, isSendingMessage: false });
-      get().stopResponseTimer();
       reader?.releaseLock();
-      const t1 = performance.now();
-      console.log('[Client] finished', {
-        durationMs: Math.round(t1 - t0),
-        totalContentBytes: content.length,
-        totalThinkingBytes: thinking.length,
-        thinkMode,
-      });
-      console.groupEnd();
     }
   },
   
@@ -439,6 +460,7 @@ export const useChatStore = create<ChatStore>((set, get) => {
 
   toggleSidebar: () => set(state => ({ isSidebarOpen: !state.isSidebarOpen })),
   setSidebarOpen: (open: boolean) => set({ isSidebarOpen: open }),
+  setThinkModeEnabled: (enabled: boolean) => set({ thinkModeEnabled: enabled }),
 
   setLanguage: (lang) => set({ language: lang }),
 

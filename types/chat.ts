@@ -5,8 +5,9 @@ export interface Message {
   role: "user" | "assistant";
   content: string;
   created_at: string;
-  thinking?: string; // Optional thinking process content
-  isThinkMode?: boolean; // Flag to indicate if message was generated with think mode
+  // Optional fields used in UI only (may not be persisted)
+  thoughts?: string;
+  responseTime?: number;
 }
 
 export interface ChatSession {
