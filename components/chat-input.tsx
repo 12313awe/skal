@@ -31,7 +31,6 @@ export function ChatInput({ className }: any) {
     e.preventDefault();
     if (!message.trim() || isResponding) return;
 
-
     const messageText = message.trim();
     if (thinkModeEnabled) {
       await sendThinkMessage(messageText, router);
@@ -78,7 +77,10 @@ export function ChatInput({ className }: any) {
                 {/* Think Button opens modal to toggle mode; it does NOT send */}
                 <ThinkButton />
                 <AnimatedSendButton
-                  onClick={handleSubmit}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    void handleSubmit(e);
+                  }}
                   disabled={!message.trim() || isResponding}
                   className="flex-shrink-0 h-9 sm:h-10 w-24 sm:w-32"
                 />
