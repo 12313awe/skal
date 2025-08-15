@@ -5,7 +5,6 @@ import { Lightbulb, CheckCircle2, Circle } from 'lucide-react';
 import { Button } from './ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from './ui/dialog';
 import { useChatStore } from '@/lib/store';
-import { AnimatedThinkButton } from './ui/animated-think-button';
 
 export function ThinkButton() {
   const [open, setOpen] = useState(false);
@@ -14,12 +13,15 @@ export function ThinkButton() {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <AnimatedThinkButton
-          onClick={() => setOpen(true)}
-          disabled={isResponding}
-          isActive={thinkModeEnabled}
-          className="h-9 sm:h-10 w-24 sm:w-32"
-        />
+        <div className='group relative cursor-pointer p-2 w-24 h-10 sm:w-28 sm:h-12 border bg-white dark:bg-gray-800 rounded-full overflow-hidden text-black dark:text-white text-center font-semibold shadow-sm'>
+          <span className='translate-y-0 group-hover:-translate-y-12 group-hover:opacity-0 transition-all duration-300 inline-block flex items-center justify-center h-full'>
+            <Lightbulb className={`h-4 w-4 sm:h-5 sm:w-5 ${thinkModeEnabled ? 'text-yellow-500 drop-shadow-[0_0_6px_rgba(250,204,21,0.8)]' : 'text-gray-600 dark:text-gray-300'}`} />
+          </span>
+          <div className='flex gap-2 text-white bg-green-400 dark:bg-green-500 z-10 items-center absolute left-0 top-0 h-full w-full justify-center translate-y-12 opacity-0 group-hover:translate-y-0 group-hover:opacity-100 transition-all duration-300 rounded-full group-hover:rounded-none'>
+            <span className="text-xs sm:text-sm font-medium">Aç/Kapa</span>
+            <Lightbulb className="h-3 w-3 sm:h-4 sm:w-4" />
+          </div>
+        </div>
       </DialogTrigger>
       <DialogContent className="sm:max-w-lg rounded-2xl">
         <DialogHeader>
