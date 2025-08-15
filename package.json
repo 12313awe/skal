@@ -226,7 +226,7 @@
   },
   "devDependencies": {
     "@tailwindcss/typography": "^0.5.16",
-    "@types/gsap": "^3.12.2",
+    "@types/gsap": "3.0.0",
     "@types/node": "^22",
     "@types/react": "^18.2.7",
     "@types/react-dom": "^18.2.7",
