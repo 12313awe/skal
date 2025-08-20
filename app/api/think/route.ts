@@ -6,11 +6,8 @@ import { createClient } from '@supabase/supabase-js';
 import { z } from 'zod';
 import { GoogleGenerativeAIEmbeddings } from "@langchain/google-genai";
 import { SupabaseVectorStore } from "@langchain/community/vectorstores/supabase";
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import Groq from "groq-sdk";
 import { Document } from 'langchain/document';
-
-// Cache the first working thinking model (or remember fallback) to avoid repeated upstream 400s
-let THINK_MODEL_CACHED: string | 'fallback' | null = null;
 
 const reqSchema = z.object({
   message: z.string().min(1),
@@ -143,8 +140,8 @@ export async function POST(req: NextRequest) {
       const rerankGenAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY!);
       const rerankModel = rerankGenAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
       const rerankPrompt = `Kullanıcının sorgusu: "${message}" ve aşağıdaki belgeler göz önüne alındığında, onları en alakalıdan en az alakalıya doğru sıralayın. Yalnızca sıralanmış belge içeriklerini, her biri "---BELGE_AYIRICI---" ile ayrılmış olarak sağlayın. Başka hiçbir metin veya açıklama eklemeyin.\n\nBelgeler:\n${relevantDocs.map((doc: Document, index: number) => `Belge ${index + 1}:\n${doc.pageContent}`).join('\n\n')}`;
-      try {
-        const rerankResult = await rerankModel.generateContent(rerankPrompt);
+        const rerankGenAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY!);
+        const rerankModel = rerankGenAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
         const rerankedText = rerankResult.response.text();
         const orderedDocContents = rerankedText.split('---BELGE_AYIRICI---').map((s: string) => s.trim()).filter((s: string) => s.length > 0);
         context = orderedDocContents.join('\n\n');
@@ -170,48 +167,42 @@ export async function POST(req: NextRequest) {
     // Build OpenRouter messages: system + reversed history (no duplicate of current user)
     const messagesForOR = [
       { role: 'system', content: systemInstruction },
-      ...chatHistory.reverse().map(m => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: m.content })),
-    ];
+      // Build Groq messages: system + reversed history
+      const messagesForGroq = [
 
     // OpenRouter: DeepSeek R1 (free) for Think mode
     const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
     if (!OPENROUTER_API_KEY) {
-      console.error('FATAL: OPENROUTER_API_KEY is not set');
-      return NextResponse.json({ error: 'Server configuration error' }, { status: 500 });
-    }
-
-    const siteUrl = req.headers.get('referer') || 'http://localhost:3000';
-    const siteTitle = 'SkalGPT';
-
-    const orRes = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
-        'HTTP-Referer': siteUrl,
-        'X-Title': siteTitle,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'deepseek/deepseek-r1:free',
-        messages: messagesForOR,
+      // Groq API call
+      const groq = new Groq({
+        apiKey: process.env.GROQ_API_KEY!,
       }),
     });
+      const completion = await groq.chat.completions.create({
+        messages: messagesForGroq as any,
+        model: "deepseek-r1-distill-llama-70b",
+        temperature: 0.7,
+        max_tokens: 4096,
+        top_p: 0.9,
+        stream: false,
+      });
 
-    if (!orRes.ok) {
-      const errText = await orRes.text();
-      console.error('[THINK_API_ERROR] OpenRouter upstream error:', errText);
-      return NextResponse.json({ error: 'Upstream error' }, { status: 500 });
-    }
-
-    const data = await orRes.json();
-    const choice = data?.choices?.[0]?.message || {};
-    let outputText: string = choice?.content || '';
-    let thoughtsText: string | undefined = (choice as any)?.reasoning;
-    // If reasoning not provided separately, try to extract from <think> tags in content
-    if (!thoughtsText && typeof outputText === 'string') {
-      const m = outputText.match(/<think>([\s\S]*?)<\/think>/i);
-      if (m) {
-        thoughtsText = m[1].trim();
+      const choice = completion.choices?.[0]?.message;
+      let outputText: string = choice?.content || '';
+      let thoughtsText: string | undefined = (choice as any)?.reasoning;
+      
+      // Extract reasoning from the response if available
+      if (!thoughtsText && typeof outputText === 'string') {
+        // Try to extract from <think> tags or reasoning patterns
+        const thinkMatch = outputText.match(/<think>([\s\S]*?)<\/think>/i);
+        const reasoningMatch = outputText.match(/\*\*Reasoning:\*\*([\s\S]*?)(?:\*\*|$)/i);
+        
+        if (thinkMatch) {
+          thoughtsText = thinkMatch[1].trim();
+          outputText = outputText.replace(thinkMatch[0], '').trim();
+        } else if (reasoningMatch) {
+          thoughtsText = reasoningMatch[1].trim();
+          outputText = outputText.replace(reasoningMatch[0], '').trim();
         outputText = outputText.replace(m[0], '').trim();
       }
     }
@@ -230,7 +221,11 @@ export async function POST(req: NextRequest) {
       .single();
 
     return NextResponse.json({ output: outputText, thinking: thoughtsText ?? '' });
-  } catch (err: any) {
+      console.error('[THINK_API_ERROR]', {
+        message: err?.message || err,
+        stack: err?.stack,
+        name: err?.name
+      });
     console.error('[THINK_API_ERROR]', err?.message || err);
     return NextResponse.json({ error: 'Internal error' }, { status: 500 });
   }

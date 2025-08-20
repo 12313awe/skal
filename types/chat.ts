@@ -8,6 +8,7 @@ export interface Message {
   // Optional fields used in UI only (may not be persisted)
   thoughts?: string;
   responseTime?: number;
+  reasoning?: string; // For Groq reasoning field
 }
 
 export interface ChatSession {

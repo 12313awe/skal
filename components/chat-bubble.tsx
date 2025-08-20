@@ -115,6 +115,8 @@ export function ChatBubble({ message, isLastMessage, isResponding }: ChatBubbleP
                 <div className="mt-2 rounded-md border border-border bg-muted/30 p-2 text-xs text-muted-foreground whitespace-pre-wrap max-h-60 overflow-y-auto leading-relaxed">
                   {('thoughts' in message && (message as any).thoughts && (message as any).thoughts.length > 0)
                     ? (message as any).thoughts
+                    : ('reasoning' in message && (message as any).reasoning && (message as any).reasoning.length > 0)
+                    ? (message as any).reasoning
                     : 'Bu mesaj için düşünce verisi mevcut değil.'}
                 </div>
               )}
